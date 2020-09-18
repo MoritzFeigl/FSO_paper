@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/235850171.svg)](https://zenodo.org/badge/latestdoi/235850171)
+
 # Function Space Optimization: A symbolic regression method for estimating parameter transfer functions for hydrological models
 
 <p align="center">
