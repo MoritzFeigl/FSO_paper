@@ -15,11 +15,6 @@ The code in this repository was used to produce all results and figures in our m
 - `Functions` All functions used in the Paper code. This mainly includes functions for the context free grammar implementation, FSO VAE training and generator functions, d-GR4J optimization routines and additional helper functions. 
 - `Paper code` The scripts used to produce the results of the publication.
 
-
-### Additional informations
-
-All scripts in this repository use tensorflow 1. We are now working on a implementation of FSO as an R & Python package which are using tensorflow 2 and will therefore not update the here presented code base.
-
 ## License
 
 [Apache License 2.0](https://github.com/MoritzFeigl/FSO_paper/blob/master/LICENSE)
