@@ -1,18 +1,15 @@
-#
-# Function Space Optimization
-# Case study GR4J Optimization & testing
-#
-# Moritz Feigl
+# Function Space Optimization case study with d-GR4J
+# Moritz Feigl, 2019
 #
 
 
 # 0. Load everything needed 
-setwd("D:/Dropbox/Diss/CF_Grammar/Code/GR4J_case_study")
+setwd("FSO_paper")
 source("Functions/FSO_functions.R")
 FSO_setup()
 
 # 1. Optimization, testing & diagnostic plots
-grid <- expand.grid("Test_number" = c(1.1, 1.2, 2.4, 2.5, 2.6),
+grid <- expand.grid("Test_number" = c(1.1, 1.2, 2.4, 2.5, 2.6, 4.4, 4.5, 4.6),
                    "Optimizer" = c("GA", "DDS", "PSO"),
                    "run" = c(1:5),
                    stringsAsFactors = FALSE)
@@ -27,4 +24,4 @@ mapply(FSO,
 
 
 # 2. Plot results
-FSO_plot(Test_number = 3.1)
+source("Paper code/FSO_plots") 

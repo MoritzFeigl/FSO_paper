@@ -1,6 +1,7 @@
+# get parameter table and bounds for d-GR4J case study
+# Moritz Feigl, 2019
 #
-# get parameter table and bounds for GR4J study
-#
+
 
 # 2 KM GR4J Parameters
 para <- read.table("GR4J_distributed/input/para_Mur_GR4J_true.txt",

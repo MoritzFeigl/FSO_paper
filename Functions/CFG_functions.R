@@ -1,9 +1,10 @@
-#
 # Context Free Grammar functions
+# Moritz Feigl, 2019
 #
 
+
 rule <- function(rule_string) {
-  ### Helper function for grammar definition ###
+  # Helper function for grammar definition
   
   # split by comma
   rule <- unlist(strsplit(rule_string, split = ", "))

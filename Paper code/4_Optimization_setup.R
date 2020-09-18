@@ -1,10 +1,6 @@
+# d-GR4J case study setup
+# Moritz Feigl, 2019
 #
-# Function Space Optimization
-# Case study GR4J Setup
-#
-# Moritz Feigl
-#
-
 
 setwd("FSO_paper")
 

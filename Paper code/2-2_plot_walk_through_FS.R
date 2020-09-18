@@ -1,7 +1,6 @@
+# Plot walk through function space
+# Moritz Feigl, 2019
 #
-# Script for plotting walk through function space
-#
-
 
 # Setup ----------------------------------------------------------------------------------
 setwd("FSO_paper")
@@ -45,13 +44,15 @@ for(i in seq_along(weights)){
 new_tfs_pred <- predict(generator_tf, new_tfs, batch_size = 1)
 new_tfs_function <- apply(new_tfs_pred, 1, tf_prediction)
 data.frame(weight_f2 = weights, new_tfs_function)
-write.table(data.frame(weight_f2 = weights, new_tfs_function), "walk_through_function_space.txt",
+write.table(data.frame(weight_f2 = weights, new_tfs_function), 
+            "walk_through_function_space.txt",
             row.names = FALSE)
 # Plot distribution change
 sent_encoded <- predict(encoder, list(proto_tfs, proto_dist))
 
 dist_prediction <- as.data.frame(predict(generator_dist, new_tfs, batch_size = 1))
-dist_prediction <- as.data.frame(apply(dist_prediction, 2, rescale, from = c(0, 1), to = c(-11, 11)))
+dist_prediction <- as.data.frame(apply(dist_prediction, 2, rescale, from = c(0, 1),
+                                       to = c(-11, 11)))
 dist_prediction <- cbind(names = c("start", 
                                    paste0("step ", 1:(nrow(dist_prediction)-2)),
                                    "end"), 

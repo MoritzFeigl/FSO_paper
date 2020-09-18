@@ -1,3 +1,8 @@
+# FSO performance plots
+# Moritz Feigl, 2019
+#
+
+
 setwd("FSO_paper")
 
 
@@ -22,7 +27,6 @@ parameter_bounds <- list(GR4Jx1 = as.numeric(bounds[7, c(3, 4)]), # production s
                          GR4Jx4 = as.numeric(bounds[10, c(3, 4)])) #length of the UH
 
 
-setwd("full_results")
 FSO_plot <- function(Test_number){
   # Plot all test results
   
@@ -32,7 +36,6 @@ FSO_plot <- function(Test_number){
   # define test path
   test_path <- paste0("Test ", substr(Test_number, 1, 1),"/",
                       "Test ", Test_number, "/")
-  
   library(tidyverse)
   library(feather)
   # # find relevant files
@@ -90,7 +93,7 @@ FSO_plot <- function(Test_number){
   optimized_funs <- cbind(Method = c("True functions", "GA", "DDS", "PSO"), optimized_funs, stringsAsFactors = FALSE)
   
   # best run
-  best_runs <- c(
+  example_runs <- c(
     as.character(data_df[data_df$Method == "GA", ][which.max(as.matrix(data_df[data_df$Method == "GA", "full_loss"])), "run"][1,]),
     as.character(data_df[data_df$Method == "DDS", ][which.max(as.matrix(data_df[data_df$Method == "DDS", "full_loss"])), "run"][1,]),
     as.character(data_df[data_df$Method == "PSO", ][which.max(as.matrix(data_df[data_df$Method == "PSO", "full_loss"])), "run"][1,]))
@@ -124,13 +127,13 @@ FSO_plot <- function(Test_number){
   
   # test losses
   ga_test <- read.table(paste0(test_path, "/testing/GA_testing_", Test_number, 
-                               "_run", best_runs[1],  ".txt"),
+                               "_run", example_runs[1],  ".txt"),
                         skip = 26, header = TRUE, nrow = 112)
   dds_test <- read.table(paste0(test_path, "/testing/DDS_testing_", Test_number, 
-                                "_run", best_runs[2],  ".txt"),
+                                "_run", example_runs[2],  ".txt"),
                          skip = 26, header = TRUE, nrow = 112)
   pso_test <- read.table(paste0(test_path, "/testing/PSO_testing_", Test_number, 
-                                "_run", best_runs[3],  ".txt"),
+                                "_run", example_runs[3],  ".txt"),
                          skip = 26, header = TRUE, nrow = 112)
   
   ga_test_nse <- mean(ga_test$NSE[ga_test$Basin %in% test_basins])
@@ -200,8 +203,6 @@ FSO_plot <- function(Test_number){
     geom_line(data = m_sub_df[m_sub_df$run == 5, ], 
               aes(x = cum_it, y = value, col = Optimizer), alpha = 0.8) +
     geom_hline(aes(yintercept = 1)) +
-    # scale_linetype_manual(name = "True function", values = c(1),
-    #                      guide = guide_legend(override.aes = list(color = c("black")))) +
     xlab("Number of iterations") + ylab("NSE") +
     coord_cartesian(ylim = c(ylim_low, 1)) +
     scale_x_continuous(breaks = c(0, 500, 1000, 1500, 2000, 2500, 3000),
@@ -237,15 +238,15 @@ FSO_plot <- function(Test_number){
          height = 18, width = 30, unit = "cm") #saving plot
   
   # write out which runs were the best
-  cat("Overview of best runs per optimizer are saved under:\n",  paste0(test_path, "best_runs.txt"), "\n")
+  cat("Overview of best runs per optimizer are saved under:\n",  paste0(test_path, "example_runs.txt"), "\n")
   write.table(data.frame(Optimizer = c("GA", "DDS", "PSO"),
-                         best_run = best_runs),
-              paste0(test_path, "best_runs.txt"))
+                         example_run = example_runs),
+              paste0(test_path, "example_runs.txt"))
   
   img <- png::readPNG(paste0(Test_number,"_Optimization_results.png"), native = FALSE, info = FALSE)
   grid::grid.raster(img)
 }
-sapply(c(1.2, 2.4, 2.5, 2.6), FSO_plot)
+sapply(c(1.2, 2.4, 2.5, 2.6, 4.4, 4.5, 4.6), FSO_plot)
 
 
 
@@ -285,8 +286,6 @@ single_FSO_plot <- function(Test_number, Optimizer = "DDS", ylim_low){
     }
   }
   names(data_df)[12] <- "Method"
-  
-  
   ## Timeseries plot
   library(ggplot2)
   library(gtable)
@@ -302,16 +301,12 @@ single_FSO_plot <- function(Test_number, Optimizer = "DDS", ylim_low){
     geom_line() +
     geom_hline(yintercept = 1) +
     coord_cartesian(ylim = c(ylim_low, 1)) +
-    # scale_linetype_manual(name = "True function", values = c(1),
-    #                      guide = guide_legend(override.aes = list(color = c("black")))) +
     xlab("\nNumber of iterations") + ylab("NSE\n") +
     scale_x_continuous(breaks = c(0, 500, 1000, 1500, 2000, 2500, 3000),
                        labels = c("0", "500", "1000", "1500", "2000", "2500", "3000"),
                        limits = c(0, 3000)) +
     scale_linetype_manual(name = "Loss type", values = c(1, 2), labels = c("Mean basin\nNSE", "Optimization\nNSE")) +
-    theme(#legend.text = element_text(size = 11),
-      #legend.title=element_text(size=12),
-      axis.text=element_text(size=10),
+    theme(axis.text=element_text(size=10),
       axis.title=element_text(size=13,face="bold"))+ theme_minimal() +
     ggsave(file = paste0("Result Plots/", Test_number, "/", Test_number, "_FSO_training.png"), width = 9, height = 7, units = "in")
   print(p1)
@@ -321,8 +316,6 @@ single_FSO_plot <- function(Test_number, Optimizer = "DDS", ylim_low){
     geom_line() +
     geom_hline(yintercept = 1) +
     coord_cartesian(ylim = c(ylim_low, 1)) +
-    # scale_linetype_manual(name = "True function", values = c(1),
-    #                      guide = guide_legend(override.aes = list(color = c("black")))) +
     xlab("\nNumber of iterations") + ylab("NSE\n") +
     scale_x_continuous(breaks = c(0, 500, 1000, 1500, 2000, 2500, 3000),
                        labels = c("0", "500", "1000", "1500", "2000", "2500", "3000"),
@@ -332,12 +325,9 @@ single_FSO_plot <- function(Test_number, Optimizer = "DDS", ylim_low){
       axis.text=element_text(size=25),
       axis.title=element_text(size=13,face="bold"))+ theme_minimal(base_size = 20) +
     ggsave(file = paste0("Result Plots/", Test_number, "/", Test_number, "_FSO_training_simple.png"), width = 9, height = 7, units = "in")
-  
-  
-  
 }
 
-FSO_result_table <- function(Test_number, best_run){
+FSO_result_table <- function(Test_number, example_run){
   # load spatial predictors
   l0 <- load_sp_mur(scale = TRUE, na.approx = FALSE, 
                     only_training_basins = FALSE)
@@ -371,8 +361,8 @@ FSO_result_table <- function(Test_number, best_run){
     }
   }
   names(data_df)[12] <- "Method"
-  max_Loss <- max(data_df[data_df$Method == "DDS" & data_df$run == best_run, "full_loss"])
-  max_NSEs <- unlist(data_df[data_df$Method == "DDS" & data_df$run == best_run 
+  max_Loss <- max(data_df[data_df$Method == "DDS" & data_df$run == example_run, "full_loss"])
+  max_NSEs <- unlist(data_df[data_df$Method == "DDS" & data_df$run == example_run 
                              & data_df$full_loss == max_Loss, "NSE"][1, 1])
   
   optimized_funs <- list(data.frame(best_x1 = transfer_functions[["GR4Jx1"]],
@@ -398,11 +388,11 @@ FSO_result_table <- function(Test_number, best_run){
                            Deriv::Simplify(optimized_funs[2, 4]))
   
   # iterations needed to get NSE > 0.95
-  it_until_larger_nse <- unlist(min(data_df[data_df$Method == "DDS" & data_df$NSE > 0.95 & data_df$run == best_run, "cum_it"][, 1]))
+  it_until_larger_nse <- unlist(min(data_df[data_df$Method == "DDS" & data_df$NSE > 0.95 & data_df$run == example_run, "cum_it"][, 1]))
   
   # test losses
   dds_test <- read.table(paste0(test_path, "/testing/DDS_testing_", Test_number, 
-                                "_run", best_run,  ".txt"),
+                                "_run", example_run,  ".txt"),
                          skip = 26, header = TRUE, nrow = 112)
   
   dds_test_nse <- mean(dds_test$NSE[dds_test$Basin %in% test_basins])
@@ -461,8 +451,8 @@ FSO_result_table <- function(Test_number, best_run){
   
 }
 
-single_FSO_dist <- function(Test_number, best_run){
-  # 4. Diagnostic Plots & rasters
+single_FSO_dist <- function(Test_number, example_run){
+  # Diagnostic Plots & rasters
   library(ggplot2, quietly = TRUE)
   library(ggpubr, quietly = TRUE)
   test_path <- paste0("Test ", substr(Test_number, 1, 1),"/",
@@ -470,16 +460,13 @@ single_FSO_dist <- function(Test_number, best_run){
   
   for(parameter in c("x1", "x3", "x4")){
     plot_parameter <- list("x1" = "X1", "x3" = "X3", "x4" = "X4")
-    
-    
     # get true parameter field
     assign("true_parameter", raster::raster(paste0("../True parameters/", parameter, "_2km.asc")))
     assign("pred_parameter", 
            raster::raster(
-             paste0(test_path, "parameter fields/run_", best_run, "/DDS_", Test_number, "_", parameter, "_2km.asc")))
+             paste0(test_path, "parameter fields/run_", example_run, "/DDS_", Test_number, "_", parameter, "_2km.asc")))
     
     # Plot True vs. predicted parameters
-    
     plot_df <- data.frame("Observation" = values(true_parameter), 
                           "Prediction" = values(pred_parameter))
     max_val <- max(plot_df, na.rm = TRUE)
@@ -494,16 +481,13 @@ single_FSO_dist <- function(Test_number, best_run){
         x = paste0("True ",  plot_parameter[[parameter]]),
         y = paste0("Predicted ",  plot_parameter[[parameter]])
       ) + annotate(geom = "text", 
-                   x =  (max_val - min_val)/2 + min_val, y = max_val,#(max_val - min_val)/2 +
-                   label = #paste0("Parameter: ", plot_parameter[[parameter]], "\n",
-                     paste0("R = ", correlation), 
+                   x =  (max_val - min_val)/2 + min_val, y = max_val,
+                   label = paste0("R = ", correlation), 
                    size = 5, hjust = 0.7, vjust = 1) +
       ylim(min_val, max_val) + xlim(min_val, max_val) +
       theme_minimal() +
       ggsave(paste0("Result Plots/", Test_number, "/", Test_number, "_FSO_", parameter, "scatter.png"),
              width = 7, height = 7, units = "in")
-    
-    
     
     plot_df_melt <- suppressWarnings(reshape2::melt(plot_df))
     p_dens <- ggplot(plot_df_melt, aes(value, fill = variable)) +
@@ -514,8 +498,6 @@ single_FSO_dist <- function(Test_number, best_run){
       ) + scale_fill_manual(labels = c("True values",
                                        "Predicted values"), 
                             name= "", values = c("deepskyblue2", "darkorange1")) + theme_minimal()
-    #
-    
     means <- aggregate(value ~ variable, plot_df_melt, mean)
     dens <- ggplot_build(ggplot(plot_df_melt, aes(value, fill = variable)) +
                            geom_density(alpha = 0.4))$data[[1]] 
@@ -523,8 +505,6 @@ single_FSO_dist <- function(Test_number, best_run){
     mean_obs_height <- dens_obs[which.min(abs(dens_obs$x - means[1, 2])), "density"]
     dens_pred <- dens[dens$group == 2, ]
     mean_pred_height <- dens_pred[which.min(abs(dens_pred$x - means[2, 2])), "density"]
-    
-    
     mean_df <- cbind(means, height = c(mean_obs_height, mean_pred_height))
     p_dens +
       geom_segment(mean_df, mapping = aes(x = value, xend = value, y = 0, yend = height,
@@ -538,16 +518,20 @@ single_FSO_dist <- function(Test_number, best_run){
   }
 }
 
-ylims_low <- c(0.98, 0.8, 0.8, 0.8)
-tests <- c(1.2, 2.4, 2.5, 2.6)
+ylims_low <- c(0.98, rep(0.8, 6))
+tests <- c(1.2, 2.4, 2.5, 2.6, 4.4, 4.5, 4.6)
 # Find best run in testing
 
-for(test in 1:4){
-  if(tests[test] == 1.2) best_run <- 5
-  if(tests[test] == 2.4) best_run <- 1
-  if(tests[test] == 2.5) best_run <- 4
-  if(tests[test] == 2.6) best_run <- 5
+for(test in 1:7){
+  if(tests[test] == 1.2) example_run <- 5
+  if(tests[test] == 2.4) example_run <- 1
+  if(tests[test] == 2.5) example_run <- 4
+  if(tests[test] == 2.6) example_run <- 5
+  if(tests[test] == 4.4) example_run <- 2
+  if(tests[test] == 4.5) example_run <- 5
+  if(tests[test] == 4.6) example_run <- 2
   single_FSO_plot(tests[test], ylim_low = ylims_low[test])
-  FSO_result_table(tests[test], best_run = best_run)
-  single_FSO_dist(tests[test], best_run = best_run)
+  FSO_result_table(tests[test], example_run = example_run)
+  single_FSO_dist(tests[test], example_run = example_run)
 }
+

@@ -1,6 +1,7 @@
+# FSO with DDS optimization for d-GR4J
+# Moritz Feigl, 2019
 #
-# DDS Optimization in function space
-#
+
 
 # 1. Prepare data and parameters -------------------------------------------------------
 if(!exists("spatial_predictors")) {
@@ -12,18 +13,33 @@ if(!exists("spatial_predictors")) {
 # get parameter table and bounds
 source("Functions/parameter_and_para_bounds_GR4J.R")
 # Get true parameter Field
-true_para_field_df <- true_para_field(Test_number)
+if(!exists("true_para_field_df")) true_para_field_df <- true_para_field(Test_number)
+if(Test_number %in% c(4.4, 4.5)){
+  if(!exists("true_state_list")) {
+    true_state_list <- readRDS("True parameters/true_states_list")
+    gr4j_state <- ifelse(Test_number == 4.4, "GR4JSt1", "GR4JSt2")
+    true_state_list <- lapply(true_state_list, function(x) {
+      data.frame(NZ = x$NZ, gr4j_state = x[, gr4j_state])})
+  }
+}
+if(Test_number == 4.6){
+  if(!exists("true_state_list")) {
+    true_state_list <- readRDS("True parameters/true_states_list")
+  }
+}
+
 
 # 2. Objective Function ------------------------------------------------------------------
 objective_function <- function(point, Test_number, 
                                true_para_field_df, spatial_predictors, parameter_bounds,
-                               para, para_1km, training_basins){
+                               para, para_1km, training_basins, true_state_list){
   latent_dim <- 6
   # Make a counter for the optimization
   counter <- get("counter", envir = .GlobalEnv)
   counter <- counter + 1
   assign("counter", counter, envir = .GlobalEnv)
   cat("\n****** Point nr.", paste0(counter, "/", iterations), "******\n")
+  
   # calculate the transfer function of the point
   point_tf <- vector(mode = "list")
   point_tf[[1]] <- tf_generator(matrix(as.numeric(point[1:6]), ncol = latent_dim))
@@ -37,6 +53,8 @@ objective_function <- function(point, Test_number,
   function_eval <- try({
     lapply(point_tf, tf_evaluation)
   }, silent = TRUE)
+  
+  
   # Stop at empty or wrong functions
   if("" %in% unlist(point_tf) | "try-error" %in% sapply(function_eval, class)) {
     cat("No valid function found!\nResulting overall loss: NA\n")
@@ -49,6 +67,7 @@ objective_function <- function(point, Test_number,
                             full_loss = result_tracker_df[nrow(result_tracker_df), "full_loss"],
                             NSE = result_tracker_df[nrow(result_tracker_df), "NSE"],
                             wNSE = result_tracker_df[nrow(result_tracker_df), "wNSE"],
+                            model_loss = result_tracker_df[nrow(result_tracker_df), "model_loss"],
                             x1 = point_tf[[1]],
                             x2 = point_tf[[2]],
                             x3 = point_tf[[3]],
@@ -58,11 +77,12 @@ objective_function <- function(point, Test_number,
            envir = .GlobalEnv)
     return(list(loss = NA, "Current point in function space" = point))
   }
+  
+  
   # check if always a spatial predictor is in any function
   functions_splitted <- lapply(point_tf, function_splitter)
-  spatial_predictor_check <- sum(
-    sapply(functions_splitted, function(x) sum(x %in% names(spatial_predictors)) < 1)
-    )
+  spatial_predictor_check <- sum(sapply(functions_splitted, function(x) sum(x %in% names(spatial_predictors)) < 1))
+  
   if(spatial_predictor_check > 0){
     cat("No valid function found!\n")
     result_tracker_df <- get("result_tracker_df", envir = .GlobalEnv)
@@ -74,19 +94,22 @@ objective_function <- function(point, Test_number,
                             full_loss = result_tracker_df[nrow(result_tracker_df), "full_loss"],
                             NSE = result_tracker_df[nrow(result_tracker_df), "NSE"],
                             wNSE = result_tracker_df[nrow(result_tracker_df), "wNSE"],
+                            model_loss = result_tracker_df[nrow(result_tracker_df), "model_loss"],
                             x1 = point_tf[[1]],
                             x2 = point_tf[[2]],
                             x3 = point_tf[[3]],
                             n_iteration_used = 0,
-                            n_iterations_since_BF_change = result_tracker_df[
-                              nrow(result_tracker_df), "n_iterations_since_BF_change"] + 1,
+                            n_iterations_since_BF_change = result_tracker_df[nrow(result_tracker_df), "n_iterations_since_BF_change"] + 1,
                             stringsAsFactors = FALSE)),
            envir = .GlobalEnv)
     return(list(loss = NA, "Current point in function space" = point))
   }
+  
+  
   # model size loss
   # 0.01 divided by number of parameters
   model_size_loss <- size_loss(functions_splitted)
+  
   # Function evaluation
   point_tf$GR4Jx2 <- "0"
   new_gr4j_para <- try(create_GR4J_para(transfer_functions = point_tf,
@@ -94,6 +117,7 @@ objective_function <- function(point, Test_number,
                                         parameter_bounds = parameter_bounds,
                                         gmean_parameter = gmean_parameter),
                        silent = TRUE)
+  
   if(class(new_gr4j_para) == "try-error" ) {
     cat("No valid function found!\n")
     result_tracker_df <- get("result_tracker_df", envir = .GlobalEnv)
@@ -105,6 +129,7 @@ objective_function <- function(point, Test_number,
                             full_loss = result_tracker_df[nrow(result_tracker_df), "full_loss"],
                             NSE = result_tracker_df[nrow(result_tracker_df), "NSE"],
                             wNSE = result_tracker_df[nrow(result_tracker_df), "wNSE"],
+                            model_loss = result_tracker_df[nrow(result_tracker_df), "model_loss"],
                             x1 = point_tf[[1]],
                             x2 = point_tf[[2]],
                             x3 = point_tf[[3]],
@@ -114,6 +139,10 @@ objective_function <- function(point, Test_number,
            envir = .GlobalEnv)
     return(list(loss = NA, "Current point in function space" = point))
   }
+  
+  
+  
+  
   # Catch if NAs are produced
   if(sum(is.na(new_gr4j_para)) > 0){
     cat("Function produces too many NA NaN values!\n")
@@ -125,6 +154,7 @@ objective_function <- function(point, Test_number,
                             best_x4 = result_tracker_df[nrow(result_tracker_df), "best_x4"],
                             full_loss = result_tracker_df[nrow(result_tracker_df), "full_loss"],
                             wNSE = result_tracker_df[nrow(result_tracker_df), "wNSE"],
+                            model_loss = result_tracker_df[nrow(result_tracker_df), "model_loss"],
                             x1 = point_tf[[1]],
                             x2 = point_tf[[2]],
                             x3 = point_tf[[3]],
@@ -147,12 +177,14 @@ objective_function <- function(point, Test_number,
   names(para_new)[2:3] <- c("IZ_", "NZ_")
   cat("\n", file = "GR4J_distributed/input/para_Mur_GR4J_fsOptim.txt")
   suppressWarnings(write.table(para_new, "GR4J_distributed/input/para_Mur_GR4J_fsOptim.txt",
-              append = TRUE, row.names = FALSE, quote = FALSE))
+                               append = TRUE, row.names = FALSE, quote = FALSE))
   # start model run
   setwd("GR4J_distributed/")
   sys::exec_wait("start_GR4J_case_study.bat",
                  std_out = "GR4J_output.txt")
   setwd("..")
+  
+  
   # Get statistics and calculate losses
   statistics <- read.table("GR4J_distributed/output/statistics_gr4j_Mur.txt",
                            skip = 21, header = TRUE)
@@ -167,6 +199,7 @@ objective_function <- function(point, Test_number,
                             full_loss = result_tracker_df[nrow(result_tracker_df), "full_loss"],
                             NSE = result_tracker_df[nrow(result_tracker_df), "NSE"],
                             wNSE = result_tracker_df[nrow(result_tracker_df), "wNSE"],
+                            model_loss = result_tracker_df[nrow(result_tracker_df), "model_loss"],
                             x1 = point_tf[[1]],
                             x2 = point_tf[[2]],
                             x3 = point_tf[[3]],
@@ -196,7 +229,7 @@ objective_function <- function(point, Test_number,
     names(para_new_1km)[2:3] <- c("IZ_", "NZ_")
     cat("\n", file = "GR4J_distributed_1km/input/para_Mur_GR4J_fsOptim.txt")
     suppressWarnings(write.table(para_new, "GR4J_distributed_1km/input/para_Mur_GR4J_fsOptim.txt",
-                append = TRUE, row.names = FALSE, quote = FALSE))
+                                 append = TRUE, row.names = FALSE, quote = FALSE))
     # 1 KM Model run
     setwd("GR4J_distributed_1km/")
     sys::exec_wait("start_GR4J_case_study.bat",
@@ -208,6 +241,7 @@ objective_function <- function(point, Test_number,
   } else {
     statistics_1km <- NULL
   }
+  
   # calculate mean loss for all basins
   evaluation <- GR4J_model_quality(statistics = statistics,
                                    Test_number = Test_number,
@@ -215,14 +249,17 @@ objective_function <- function(point, Test_number,
                                    model_size_loss = model_size_loss,
                                    new_gr4j_para = new_gr4j_para,
                                    statistics_1km = statistics_1km,
-                                   relevant_basins = training_basins)
+                                   relevant_basins = training_basins,
+                                   true_state_list = true_state_list)
   mean_NSE <- evaluation[["mean_NSE"]]
   wmean_NSE <- evaluation[["wmean_NSE"]]
   full_loss <- evaluation[["full_loss"]]
   model_loss <- evaluation[["model_loss"]]
+  
   # Track results in an external data.frame
   result_tracker_df <- get("result_tracker_df", envir = .GlobalEnv)
   old_best <- result_tracker_df$full_loss[nrow(result_tracker_df)]
+  
   if(!is.na(full_loss)){
     if(full_loss > old_best) {
       assign("result_tracker_df", rbind(result_tracker_df,
@@ -232,6 +269,7 @@ objective_function <- function(point, Test_number,
                                                    full_loss = full_loss,
                                                    NSE = mean_NSE,
                                                    wNSE = wmean_NSE,
+                                                   model_loss = model_loss,
                                                    x1 = point_tf[[1]],
                                                    x2 = point_tf[[2]],
                                                    x3 = point_tf[[3]],
@@ -248,6 +286,7 @@ objective_function <- function(point, Test_number,
                               full_loss = result_tracker_df[nrow(result_tracker_df), "full_loss"],
                               NSE = result_tracker_df[nrow(result_tracker_df), "NSE"],
                               wNSE = result_tracker_df[nrow(result_tracker_df), "wNSE"],
+                              model_loss = result_tracker_df[nrow(result_tracker_df), "model_loss"],
                               x1 = point_tf[[1]],
                               x2 = point_tf[[2]],
                               x3 = point_tf[[3]],
@@ -265,6 +304,7 @@ objective_function <- function(point, Test_number,
                             full_loss = result_tracker_df[nrow(result_tracker_df), "full_loss"],
                             NSE = result_tracker_df[nrow(result_tracker_df), "NSE"],
                             wNSE = result_tracker_df[nrow(result_tracker_df), "wNSE"],
+                            model_loss = result_tracker_df[nrow(result_tracker_df), "model_loss"],
                             x1 = point_tf[[1]],
                             x2 = point_tf[[2]],
                             x3 = point_tf[[3]],
@@ -280,6 +320,7 @@ objective_function <- function(point, Test_number,
     cat("wmean NSE 1km:", weighted.mean(statistics_1km$NSE, w = 1-statistics_1km$NSE), "\n")
   } else {
     cat("wmean NSE:", wmean_NSE, "\n")
+    cat("spaef/model_loss NSE:", model_loss, "\n")
   }
   cat("overall loss:", full_loss, "\n")
   
@@ -292,32 +333,37 @@ objective_function <- function(point, Test_number,
   return(list(loss = full_loss, "Current point in function space" = point))
 }
 
-# 3. DDS Optimization ---------------------------------------------------------------------
+# 3. GA Optimization ---------------------------------------------------------------------
 assign("result_tracker_df", data.frame(best_x1 = "init",
                                        best_x3 = "init",
                                        best_x4 = "init",
                                        full_loss = -9999.0,
                                        NSE = -9999.,
                                        wNSE = -9999.,
+                                       model_loss = -9999.0,
                                        x1 = "init",
                                        x2 = "init",
                                        x3 = "init",
                                        n_iteration_used = 0,
                                        n_iterations_since_BF_change = 0,
                                        stringsAsFactors = FALSE), envir = .GlobalEnv)
+
 assign("counter", 0, envir = .GlobalEnv)
-iterations <- iterations # now part of the FSO function
+
 # Function space dds test
 xBounds.df <- data.frame(lower = rep(-5, 18),
                          upper = rep(5, 18))
+
 optim_dds <- try(dds_fs(xBounds.df = xBounds.df, OBJFUN = objective_function,
-                    numIter = iterations, Test_number = Test_number, 
-                    search_dim = 18, 
-                    true_para_field_df = true_para_field_df,
-                    spatial_predictors = spatial_predictors, 
-                    parameter_bounds = parameter_bounds,
-                    para = para, para_1km = para_1km,
-                    training_basins = training_basins))
+                        numIter = iterations, Test_number = Test_number, 
+                        search_dim = 18, 
+                        true_para_field_df = true_para_field_df,
+                        spatial_predictors = spatial_predictors, 
+                        parameter_bounds = parameter_bounds,
+                        para = para, para_1km = para_1km,
+                        training_basins = training_basins,
+                        true_state_list = true_state_list))
+
 while(class(optim_dds) == "try-error"){
   assign("result_tracker_df", data.frame(best_x1 = "init",
                                          best_x3 = "init",
@@ -325,12 +371,14 @@ while(class(optim_dds) == "try-error"){
                                          full_loss = -9999.0,
                                          NSE = -9999.,
                                          wNSE = -9999.,
+                                         model_loss = -9999.0,
                                          x1 = "init",
                                          x2 = "init",
                                          x3 = "init",
                                          n_iteration_used = 0,
                                          n_iterations_since_BF_change = 0,
                                          stringsAsFactors = FALSE), envir = .GlobalEnv)
+  
   assign("counter", 0, envir = .GlobalEnv)
   iterations <- iterations #now part of the FSO function
   optim_dds <- try(dds_fs(xBounds.df = xBounds.df, OBJFUN = objective_function,
@@ -340,7 +388,8 @@ while(class(optim_dds) == "try-error"){
                           spatial_predictors = spatial_predictors, 
                           parameter_bounds = parameter_bounds,
                           para = para, para_1km = para_1km,
-                          training_basins = training_basins))
+                          training_basins = training_basins,
+                          true_state_list = true_state_list))
 }
 
 runs <- sum(result_tracker_df$n_iteration_used)
@@ -348,13 +397,14 @@ feather::write_feather(data.frame(result_tracker_df, method = "dds", n_runs = ru
                        paste0("Test ", substr(Test_number, 1, 1),"/",
                               "Test ", Test_number, "/DDS_GR4J_optimization_", 
                               Test_number, "_run", run, ".feather"))
+
 # Run the model one more time to get the training results for all basins
 end_results <- tail(result_tracker_df, 1)
 suppressWarnings(evaluate_training_basins(end_results,  
-                                        run = run, Test_number = Test_number, 
-                                        spatial_predictors = spatial_predictors,
-                                        Optimizer = Optimizer,
-                                        para = para, para_1km = para_1km,
-                                        training_basins = training_basins, 
-                                        test_basins = test_basins)
+                                          run = run, Test_number = Test_number, 
+                                          spatial_predictors = spatial_predictors,
+                                          Optimizer = Optimizer,
+                                          para = para, para_1km = para_1km,
+                                          training_basins = training_basins, 
+                                          test_basins = test_basins)
 )

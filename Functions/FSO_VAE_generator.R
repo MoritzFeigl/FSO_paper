@@ -1,6 +1,7 @@
+# FSO Variational Autoencoder
+# Moritz Feigl, 2019
 #
-# Function Space Variational Autoencoder
-#
+
 
 library(feather)
 library(keras)
@@ -183,10 +184,10 @@ tf_evaluation <- function(predicted_tf){
     predicted_tf_num <- gsub(i, "1", predicted_tf_num)
   }
   # if there is by chance a 11 or 10. or so from setting the tfs to 1 -> error
-  if(length(grep("11", predicted_tf_num)) > 0) predicted_tf_num <- "ERROR"#gsub("11", "ERROR", predicted_tf_num)
-  if(length(grep("10.", predicted_tf_num)) > 0) predicted_tf_num <- "ERROR"#gsub("10.", "ERROR", predicted_tf_num)
-  if(length(grep("12", predicted_tf_num)) > 0) predicted_tf_num <- "ERROR"#gsub("12", "ERROR", predicted_tf_num)
-  if(length(grep("13", predicted_tf_num)) > 0) predicted_tf_num <- "ERROR" #gsub("13", "ERROR", predicted_tf_num)
+  if(length(grep("11", predicted_tf_num)) > 0) predicted_tf_num <- "ERROR"
+  if(length(grep("10.", predicted_tf_num)) > 0) predicted_tf_num <- "ERROR"
+  if(length(grep("12", predicted_tf_num)) > 0) predicted_tf_num <- "ERROR"
+  if(length(grep("13", predicted_tf_num)) > 0) predicted_tf_num <- "ERROR"
   for(i in 1:9) {
     if(length(grep(paste0(i, "1"), predicted_tf_num)) > 0) predicted_tf_num <- gsub(paste0(i, "1"), "ERROR", predicted_tf_num)
   }

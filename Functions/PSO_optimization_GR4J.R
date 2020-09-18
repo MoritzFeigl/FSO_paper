@@ -1,6 +1,7 @@
+# FSO with particle swarm optimization for d-GR4J
+# Moritz Feigl, 2019
 #
-# Optimization in function space
-#
+
 
 # 1. Prepare data and parameters -------------------------------------------------------
 if(!exists("spatial_predictors")) {
@@ -37,6 +38,7 @@ objective_function <- function(point, Test_number,
   function_eval <- try({
     lapply(point_tf, tf_evaluation)
   }, silent = TRUE)
+  
   # Stop at empty or wrong functions
   if("" %in% unlist(point_tf) | "try-error" %in% sapply(function_eval, class)) {
     cat("No valid function found!\nResulting overall loss: NA\n")
@@ -58,6 +60,7 @@ objective_function <- function(point, Test_number,
            envir = .GlobalEnv)
     return(-9999)
   }
+  
   # check if always a spatial predictor is in any function
   functions_splitted <- lapply(point_tf, function_splitter)
   spatial_predictor_check <- sum(sapply(functions_splitted, function(x) sum(x %in% names(spatial_predictors)) < 1))
@@ -82,9 +85,11 @@ objective_function <- function(point, Test_number,
            envir = .GlobalEnv)
     return(-9999)
   }
+  
+  
   # model size loss
-  # 0.01 divided by number of parameters
   model_size_loss <- size_loss(functions_splitted)
+  
   # Function evaluation
   point_tf$GR4Jx2 <- "0"
   new_gr4j_para <- try(create_GR4J_para(transfer_functions = point_tf,
@@ -113,6 +118,7 @@ objective_function <- function(point, Test_number,
            envir = .GlobalEnv)
     return(-9999)
   }
+  
   # Catch if NAs are produced
   if(sum(is.na(new_gr4j_para)) > 0){
     cat("Function produces too many NA NaN values!\n")
@@ -147,12 +153,13 @@ objective_function <- function(point, Test_number,
   names(para_new)[2:3] <- c("IZ_", "NZ_")
   cat("\n", file = "GR4J_distributed/input/para_Mur_GR4J_fsOptim.txt")
   suppressWarnings(write.table(para_new, "GR4J_distributed/input/para_Mur_GR4J_fsOptim.txt",
-              append = TRUE, row.names = FALSE, quote = FALSE))
+                               append = TRUE, row.names = FALSE, quote = FALSE))
   # start model run
   setwd("GR4J_distributed/")
   sys::exec_wait("start_GR4J_case_study.bat",
                  std_out = "GR4J_output.txt")
   setwd("..")
+  
   # Get statistics and calculate losses
   statistics <- read.table("GR4J_distributed/output/statistics_gr4j_Mur.txt",
                            skip = 21, header = TRUE)
@@ -183,6 +190,7 @@ objective_function <- function(point, Test_number,
                                           parameter_bounds = parameter_bounds, 
                                           gmean_parameter = gmean_parameter, 
                                           km1 = TRUE)
+    
     para_new_1km <- merge(para_1km, new_gr4j_para_1km, by = c("NB_", "NZ_"), suffixes =  c(".old", ""),
                           all.x = TRUE)
     para_new_1km[which(is.na(para_new_1km), arr.ind = TRUE)] <- 0 # parameter of unused basins -> 0
@@ -195,7 +203,7 @@ objective_function <- function(point, Test_number,
     names(para_new_1km)[2:3] <- c("IZ_", "NZ_")
     cat("\n", file = "GR4J_distributed_1km/input/para_Mur_GR4J_fsOptim.txt")
     suppressWarnings(write.table(para_new, "GR4J_distributed_1km/input/para_Mur_GR4J_fsOptim.txt",
-                append = TRUE, row.names = FALSE, quote = FALSE))
+                                 append = TRUE, row.names = FALSE, quote = FALSE))
     # 1 KM Model run
     setwd("GR4J_distributed_1km/")
     sys::exec_wait("start_GR4J_case_study.bat",
@@ -207,6 +215,7 @@ objective_function <- function(point, Test_number,
   } else {
     statistics_1km <- NULL
   }
+  
   # calculate mean loss for all basins
   evaluation <- GR4J_model_quality(statistics = statistics,
                                    Test_number = Test_number,
@@ -220,9 +229,11 @@ objective_function <- function(point, Test_number,
   full_loss <- evaluation[["full_loss"]]
   model_loss <- evaluation[["model_loss"]]
   if(is.na(full_loss)) full_loss <- -9999
+  
   # Track results in an external data.frame
   result_tracker_df <- get("result_tracker_df", envir = .GlobalEnv)
   old_best <- result_tracker_df$full_loss[nrow(result_tracker_df)]
+  
   if(!is.na(full_loss)){
     if(full_loss > old_best) {
       assign("result_tracker_df", rbind(result_tracker_df,
@@ -273,6 +284,8 @@ objective_function <- function(point, Test_number,
                             stringsAsFactors = FALSE)),
            envir = .GlobalEnv)
   }
+  
+  
   cat("\nPSO optimization for test nr", Test_number, "results:\n")
   cat("mean NSE:", mean_NSE, "\n")
   if(Test_number %in% c(3.1, 3.2, 3.3)){
@@ -280,15 +293,16 @@ objective_function <- function(point, Test_number,
     cat("wmean NSE 1km:", weighted.mean(statistics_1km$NSE, w = 1-statistics_1km$NSE), "\n")
   } else {
     cat("wmean NSE:", wmean_NSE, "\n")
+    cat("spaef/model_loss NSE:", model_loss, "\n")
   }
   cat("overall loss:", full_loss, "\n")
+  
   result_tracker_df <- get("result_tracker_df", envir = .GlobalEnv)
   cat("\nThe best functions are:\n")
   cat("x1 = ", result_tracker_df[nrow(result_tracker_df), "best_x1"], "\n")
   cat("x2 = 0\n")
   cat("x3 = ", result_tracker_df[nrow(result_tracker_df), "best_x3"], "\n")
   cat("x4 = ", result_tracker_df[nrow(result_tracker_df), "best_x4"], "\n")
-  return(full_loss)
 }
 
 # 3. PSO Optimization ------------------------------------------------------------------
@@ -304,6 +318,7 @@ assign("result_tracker_df", data.frame(best_x1 = "init",
                                        n_iteration_used = 0,
                                        n_iterations_since_BF_change = 0,
                                        stringsAsFactors = FALSE), envir = .GlobalEnv)
+
 assign("counter", 0, envir = .GlobalEnv)
 iterations <- iterations # now part of the FSO functions
 optim <- try(pso::psoptim(rep(NA, 18), fn = {function(x) {
@@ -313,9 +328,11 @@ optim <- try(pso::psoptim(rep(NA, 18), fn = {function(x) {
                       parameter_bounds = parameter_bounds,
                       para = para, para_1km = para_1km, 
                       training_basins = training_basins)}},
-  lower = rep(-10, 18),
-  upper = rep(10, 18),
+  
+  lower = rep(-5, 18),
+  upper = rep(5, 18),
   control = list(maxit = Inf, maxf = iterations)))
+
 while(class(optim) == "try-error"){
   assign("result_tracker_df", data.frame(best_x1 = "init",
                                          best_x3 = "init",
@@ -329,8 +346,8 @@ while(class(optim) == "try-error"){
                                          n_iteration_used = 0,
                                          n_iterations_since_BF_change = 0,
                                          stringsAsFactors = FALSE), envir = .GlobalEnv)
+  
   assign("counter", 0, envir = .GlobalEnv)
-  iterations <- iterations # now part of the FSO function
   optim <- try(pso::psoptim(rep(NA, 18), fn = {function(x) {
     -objective_function(x, Test_number = Test_number, 
                         true_para_field_df = true_para_field_df,
@@ -338,24 +355,27 @@ while(class(optim) == "try-error"){
                         parameter_bounds = parameter_bounds,
                         para = para, para_1km = para_1km, 
                         training_basins = training_basins)}},
-                            lower = rep(-10, 18),
-                            upper = rep(10, 18),
-                            control = list(maxit = Inf, maxf = iterations)))
+    lower = rep(-5, 18),
+    upper = rep(5, 18),
+    control = list(maxit = Inf, maxf = iterations)))
 }
+
+
 runs <- sum(result_tracker_df$n_iteration_used)
 feather::write_feather(data.frame(result_tracker_df, method = "PSO", n_runs = runs, stringsAsFactors = FALSE),
                        paste0("Test ", substr(Test_number, 1, 1),"/",
                               "Test ", Test_number, "/PSO_GR4J_optimization_", 
                               Test_number, "_run", run, ".feather"))
+
 # Run the model one more time to get the training results for all basins
 end_results <- tail(result_tracker_df, 1)
 suppressWarnings(evaluate_training_basins(end_results,
-                                        run = run, Test_number = Test_number, 
-                                        spatial_predictors = spatial_predictors,
-                                        Optimizer = Optimizer,
-                                        para = para, para_1km = para_1km,
-                                        training_basins = training_basins, 
-                                        test_basins = test_basins)
+                                          run = run, Test_number = Test_number, 
+                                          spatial_predictors = spatial_predictors,
+                                          Optimizer = Optimizer,
+                                          para = para, para_1km = para_1km,
+                                          training_basins = training_basins, 
+                                          test_basins = test_basins)
 )
 
 

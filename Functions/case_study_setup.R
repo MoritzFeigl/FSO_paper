@@ -1,5 +1,5 @@
-#
-# Setup for GR4J Case Study
+# Setup for d-GR4J case study
+# Moritz Feigl, 2019
 #
 
 # 1. define "True" functions -------------------------------------------------------------

@@ -1,9 +1,9 @@
-#
-# Parameter Sensitivity GR4J
+# Estimate parameter sensitivity for d-GR4J
+# Moritz Feigl, 2019
 #
 
 # 0. Setup -------------------------------------------------------------------------------
-setwd("D:/Dropbox/Diss/CF_Grammar/Code/GR4J_case_study")
+setwd("FSO_paper")
 source("Functions/FSO_functions.R")
 library(ggplot2)
 FSO_setup()

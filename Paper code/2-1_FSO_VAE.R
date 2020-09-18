@@ -1,7 +1,6 @@
+# Training FSO Variational Autoencoder
+# Moritz Feigl, 2019
 #
-# FSO VAE: CNN + LSTM
-#
-
 # Load preprocessed data -----------------------------------------------------------------
 setwd("FSO_paper")
 library(feather)

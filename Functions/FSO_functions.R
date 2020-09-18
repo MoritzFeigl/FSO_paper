@@ -1,5 +1,5 @@
-# 
-# functions for GR4J Function Space optimization
+# Functions for d-GR4J Function Space optimization case study
+# Moritz Feigl, 2019
 #
 
 # Function to load spatial predictors
@@ -64,7 +64,7 @@ NSE <- function(observations, predictions){
 }
 
 evaluate_function_from_string <- function(string, l0){
-# Evaluate a function from a string
+  # Evaluate a function from a string
   # evaluates a function given as a string for all relevant l0 layer
   # Input:
   #    string: transfer function as string
@@ -96,7 +96,6 @@ rescale <- function(x, to, from = c(-11, 11), ...) { #-11, 11
   if(sd(x, na.rm = TRUE) != 0) {
     return((x - from[1]) / diff(from) * diff(to) + to[1])
   } else {
-    #cat("Vector was not rescaled because it is constant!")
     return(x)
   }
 }
@@ -232,7 +231,6 @@ raster_from_tf <- function(tf, tf_bounds, only_catchment = TRUE,
   nz <- raster::raster(paste0(path, "l0_nz2000_mur.asc"))
   if(aggregate){
     # 0. Load necessary data
-    #cat("Aggregation is done only on catchment values!")
     l0_all <- load_sp_mur(na.approx = TRUE, scale = TRUE,
                           only_training_basins = FALSE,
                           full_dataset = FALSE)
@@ -240,9 +238,8 @@ raster_from_tf <- function(tf, tf_bounds, only_catchment = TRUE,
       # 1. Create 250m parameter field
       paraf <- sand
       raster::values(paraf)[is.na(raster::values(nb))] <- NA
-      raster::values(paraf)[!is.na(raster::values(nb))] <- rescale(evaluate_function_from_string(tf, 
-                                                                                                 l0 = l0_all), 
-                                                                   to = tf_bounds)
+      raster::values(paraf)[!is.na(raster::values(nb))] <- rescale(
+        evaluate_function_from_string(tf, l0 = l0_all),  to = tf_bounds)
       # 2. get 1km NB and IZ information together with 1km values in a df
       NB_1km <- raster::raster("Data/km1_NB.asc")
       IZ_1km <- raster::raster("Data/km1_IZ.asc")
@@ -398,6 +395,32 @@ probPeturb <- function(x, numIter){
   return(peturbIdx)
 }
 
+SPAEF <- function(observations, predictions){
+  # SPAtial EFficiency (SPAEF) metric
+  # Inputs: numeric vectors of observawtions and predictions
+  # Output: numeric
+  spaef_try <- try({
+    alpha <- cor(predictions, observations)
+    beta <- (sd(observations)/mean(observations)) / (sd(predictions)/mean(predictions))
+    
+    # scale for histogram distance
+    observations <- scale(observations)
+    predictions <- scale(predictions)
+    
+    range_true <- max(observations) - min(observations)
+    breaks <- seq(min(observations), max(observations), range_true/100)
+    c1 <- as.integer(table(cut(observations, breaks = breaks)))
+    c2 <- as.integer(table(cut(predictions, breaks = breaks)))
+    
+    c_min <- numeric()
+    for(i in seq_along(c1)) c_min <- c(c_min, min(c1[i], c2[i]))
+    gamma <- sum(c_min)/sum(c1)
+    spaef <- 1 - sqrt((alpha-1)^2 + (beta-1)^2 + (gamma-1)^2)
+  }, silent = TRUE)
+  if(class(spaef_try) == "try-error") spaef <- NA
+  return(spaef)
+}
+
 # GR4J model quality
 GR4J_model_quality <- function(statistics, Test_number, true_para_field_df, 
                                model_size_loss, new_gr4j_para, relevant_basins = NULL,
@@ -439,7 +462,7 @@ GR4J_model_quality <- function(statistics, Test_number, true_para_field_df,
     output["full_loss"] <- full_loss
   }
   
-  # Test 2.1 multi-objective weighted mean NSE
+  # Test 2.1-2.3 multi-objective weighted mean NSE using parameter fields
   if(Test_number %in% c(2.1, 2.2, 2.3)){
     output <- list()
     # subset relevant basins
@@ -470,6 +493,7 @@ GR4J_model_quality <- function(statistics, Test_number, true_para_field_df,
     output["full_loss"] <- full_loss
   }
   
+  # Test 2.4-2.6 multi-objective weighted mean NSE using states
   if(Test_number %in% c(2.4, 2.5)){
     output <- list()
     # subset relevant basins
@@ -631,6 +655,8 @@ GR4J_model_quality <- function(statistics, Test_number, true_para_field_df,
     output["model_loss"] <- model_loss
     output["full_loss"] <- full_loss
   }
+  
+  # Test 3.1-3.3 multi-objective weighted mean NSE using states for both 1km and 2km d-GR4J
   if(Test_number == 3.1){
     output <- list()
     # subset relevant basins
@@ -760,14 +786,339 @@ GR4J_model_quality <- function(statistics, Test_number, true_para_field_df,
     output["model_loss"] <- model_loss
     output["full_loss"] <- full_loss
   }
+  
+  # Test 4.1-4.6 multi-objective optimization with NSE for Q and SPAEF for states
+  # Test 4.1-4.3 using SPAEF only for the last maps of states
+  if(Test_number %in% c(4.1, 4.2)){
+    output <- list()
+    # subset relevant basins
+    if(!is.null(relevant_basins)) statistics <- statistics[statistics$sb %in% relevant_basins, ]
+    
+    if(Test_number == 4.1) {
+      gr4j_state <- "GR4JSt1"
+      true_last_states <- as.data.frame(
+        feather::read_feather(
+          paste0("True parameters/", training, "_last_GR4J_state1.feather")))
+    }
+    if(Test_number == 4.2) {
+      gr4j_state <- "GR4JSt2"
+      true_last_states <- as.data.frame(
+        feather::read_feather(
+          paste0("True parameters/", training, "_last_GR4J_state2.feather")))
+    }
+    
+    #SPAEF
+    spaef_try <- try({
+      # Calculate loss by comparison with observed storage states
+      last_state_names <- read.table("GR4J_distributed/output/statevar_GR4J.dmp", 
+                                     header=FALSE, fill=TRUE, skip = 2, nrows = 1, 
+                                     stringsAsFactors = FALSE)
+      
+      last_states <- read.table("GR4J_distributed/output/statevar_GR4J.dmp", 
+                                header = FALSE, fill = FALSE, skip = 3, nrows = 2859)
+      colnames(last_states) <- last_state_names
+      last_states <-last_states[last_states$NB %in% relevant_basins, 
+                                c("NB", "IZ", gr4j_state)]
+      true_last_states <- true_last_states[true_last_states$NB %in% relevant_basins, ]
+      
+      a <- true_last_states[, gr4j_state]
+      a <- a[is.finite(a)]
+      b <- last_states[, gr4j_state]
+      b <- b[is.finite(b)]
+      alpha <- cor(b, a)
+      beta <- (sd(a)/mean(a)) / (sd(b)/mean(b))
+      
+      range_true <- max(a) - min(a)
+      breaks <- seq(min(a), max(a), range_true/100)
+      c1 <- as.integer(table(cut(a, breaks = breaks)))
+      c2 <- as.integer(table(cut(b, breaks = breaks)))
+      
+      c_min <- numeric()
+      for(i in seq_along(c1)) c_min <- c(c_min, min(c1[i], c2[i]))
+      gamma <- sum(c_min)/sum(c1)
+      spaef <- 1 - sqrt((alpha-1)^2 + (beta-1)^2 + (gamma-1)^2)
+    })
+    if(class(spaef_try) == "try-error") spaef <- NA
+    
+    # calculate mean total loss for all basins
+    mean_NSE <- mean(statistics$NSE)
+    wmean_NSE <- weighted.mean(statistics$NSE, w = 1.01-statistics$NSE)
+    full_loss <- wmean_NSE + spaef - model_size_loss
+    
+    # The mean NSE minus the model size loss -> to be consistent with the other tests
+    model_loss <- wmean_NSE - model_size_loss
+    
+    # calculate overall loss
+    output["mean_NSE"] <- mean_NSE
+    output["wmean_NSE"] <- wmean_NSE
+    output["model_loss"] <- spaef
+    output["full_loss"] <- full_loss
+  }
+  if(Test_number == 4.3){
+    output <- list()
+    # subset relevant basins
+    if(!is.null(relevant_basins)) statistics <- statistics[statistics$sb %in% relevant_basins, ]
+    
+    # GR4J States 1
+    gr4j_state <- "GR4JSt1"
+    true_last_states <- as.data.frame(
+      feather::read_feather(
+        paste0("True parameters/", training, "_last_GR4J_state1.feather")))
+    
+    
+    
+    
+    #SPAEF
+    spaef_try1 <- try({
+      # Calculate loss by comparison with observed storage states
+      last_state_names <- read.table("GR4J_distributed/output/statevar_GR4J.dmp", 
+                                     header=FALSE, fill=TRUE, skip = 2, nrows = 1, 
+                                     stringsAsFactors = FALSE)
+      
+      last_states <- read.table("GR4J_distributed/output/statevar_GR4J.dmp", 
+                                header = FALSE, fill = FALSE, skip = 3, nrows = 2859)
+      colnames(last_states) <- last_state_names
+      last_states <-last_states[last_states$NB %in% relevant_basins, 
+                                c("NB", "IZ", gr4j_state)]
+      true_last_states <- true_last_states[true_last_states$NB %in% relevant_basins, ]
+      
+      a <- true_last_states[, gr4j_state]
+      a <- a[is.finite(a)]
+      b <- last_states[, gr4j_state]
+      b <- b[is.finite(b)]
+      alpha <- cor(b, a)
+      beta <- (sd(a)/mean(a)) / (sd(b)/mean(b))
+      
+      range_true <- max(a) - min(a)
+      breaks <- seq(min(a), max(a), range_true/100)
+      c1 <- as.integer(table(cut(a, breaks = breaks)))
+      c2 <- as.integer(table(cut(b, breaks = breaks)))
+      
+      c_min <- numeric()
+      for(i in seq_along(c1)) c_min <- c(c_min, min(c1[i], c2[i]))
+      gamma <- sum(c_min)/sum(c1)
+      spaef1 <- 1 - sqrt((alpha-1)^2 + (beta-1)^2 + (gamma-1)^2)
+    })
+    if(class(spaef_try1) == "try-error") spaef1 <- NA
+    
+    
+    
+    # GR4J States 2
+    gr4j_state <- "GR4JSt2"
+    true_last_states <- as.data.frame(
+      feather::read_feather(
+        paste0("True parameters/", training, "_last_GR4J_state2.feather")))
+    
+    # Calculate loss by comparison with observed storage states
+    last_state_names <- read.table("GR4J_distributed/output/statevar_GR4J.dmp", 
+                                   header=FALSE, fill=TRUE, skip = 2, nrows = 1, 
+                                   stringsAsFactors = FALSE)
+    
+    last_states <- read.table("GR4J_distributed/output/statevar_GR4J.dmp", 
+                              header = FALSE, fill = FALSE, skip = 3, nrows = 2859)
+    colnames(last_states) <- last_state_names
+    last_states <-last_states[last_states$NB %in% relevant_basins, 
+                              c("NB", "IZ", gr4j_state)]
+    true_last_states <- true_last_states[true_last_states$NB %in% relevant_basins, ]
+    #SPAEF
+    spaef_try2 <- try({
+      # Calculate loss by comparison with observed storage states
+      last_state_names <- read.table("GR4J_distributed/output/statevar_GR4J.dmp", 
+                                     header=FALSE, fill=TRUE, skip = 2, nrows = 1, 
+                                     stringsAsFactors = FALSE)
+      
+      last_states <- read.table("GR4J_distributed/output/statevar_GR4J.dmp", 
+                                header = FALSE, fill = FALSE, skip = 3, nrows = 2859)
+      colnames(last_states) <- last_state_names
+      last_states <-last_states[last_states$NB %in% relevant_basins, 
+                                c("NB", "IZ", gr4j_state)]
+      true_last_states <- true_last_states[true_last_states$NB %in% relevant_basins, ]
+      
+      a <- true_last_states[, gr4j_state]
+      a <- a[is.finite(a)]
+      b <- last_states[, gr4j_state]
+      b <- b[is.finite(b)]
+      alpha <- cor(b, a)
+      beta <- (sd(a)/mean(a)) / (sd(b)/mean(b))
+      
+      range_true <- max(a) - min(a)
+      breaks <- seq(min(a), max(a), range_true/100)
+      c1 <- as.integer(table(cut(a, breaks = breaks)))
+      c2 <- as.integer(table(cut(b, breaks = breaks)))
+      
+      c_min <- numeric()
+      for(i in seq_along(c1)) c_min <- c(c_min, min(c1[i], c2[i]))
+      gamma <- sum(c_min)/sum(c1)
+      spaef2 <- 1 - sqrt((alpha-1)^2 + (beta-1)^2 + (gamma-1)^2)
+    })
+    if(class(spaef_try2) == "try-error") spaef2 <- NA
+    
+    if(sum(is.na(c(spaef1, spaef2))) == 0){
+      spaef <- mean(spaef1, spaef2)
+    } else spaef <- NA
+    
+    # calculate mean total loss for all basins
+    mean_NSE <- mean(statistics$NSE)
+    wmean_NSE <- weighted.mean(statistics$NSE, w = 1.01-statistics$NSE)
+    full_loss <- wmean_NSE + spaef - model_size_loss
+    
+    # The mean NSE minus the model size loss -> to be consistent with the other tests
+    model_loss <- wmean_NSE - model_size_loss
+    
+    # calculate overall loss
+    output["mean_NSE"] <- mean_NSE
+    output["wmean_NSE"] <- wmean_NSE
+    output["model_loss"] <- spaef
+    output["full_loss"] <- full_loss
+  }
+  # Test 4.4-4.6 using SPAEF for the time series of state maps
+  if(Test_number %in% c(4.4, 4.5)){
+    output <- list()
+    # subset relevant basins
+    if(!is.null(relevant_basins)) statistics <- statistics[statistics$sb %in% relevant_basins, ]
+    
+    gr4j_state <- ifelse(Test_number == 4.4, "GR4JSt1", "GR4JSt2")
+    # Calculate loss by comparison with observed storage states
+    # read and format state results
+    state_files <- list.files("GR4J_distributed/cdr/output", full.names = TRUE)
+    state_list <- lapply(state_files, function(x) read.table(x, header=TRUE, sep = ","))
+    
+    if(!is.null(relevant_basins)){
+      if(sum(relevant_basins %in% test_basins) == length(relevant_basins)){
+        training_nz <- feather::read_feather("True parameters/training_basins_nz.feather")
+        state_list <- lapply(state_list, function(x){
+          x[!(x$NZ %in% training_nz$NZ), ]
+        })
+      }
+      if(sum(relevant_basins %in% training_basins) == length(relevant_basins)){
+        training_nz <- feather::read_feather("True parameters/training_basins_nz.feather")
+        state_list <- lapply(state_list, function(x){
+          x[x$NZ %in% training_nz$NZ, ]
+        })
+      }
+      
+    }
+    
+    # standardize states
+    
+    # get relevant state and standardize
+    state_list <- lapply(state_list, function(x) {
+      data.frame(NZ = x$NZ, gr4j_state = x[, gr4j_state])})
+    all_state_list <- Map(merge, 
+                          state_list, 
+                          true_state_list[1:length(state_list)], 
+                          by="NZ", all.y = FALSE)
+    
+    # For testing use only the testing time steps
+    if(training == "testing") all_state_list <- all_state_list[2434:length(all_state_list)]
+    if(training == "training") all_state_list <- all_state_list[241:length(all_state_list)]
+    
+    # compute spaef for every timestep
+    all_spaef <- sapply(all_state_list, function(x) {
+      SPAEF(observations = x[, 2], prediction = x[, 3])
+    })
+    spaef <- mean(all_spaef)
+    
+    # calculate loss
+    mean_NSE <- mean(statistics$NSE)
+    wmean_NSE <- weighted.mean(statistics$NSE, w = 1.01-statistics$NSE)
+    if(is.na(wmean_NSE) | is.na(spaef)){
+      full_loss <- NA
+    } else full_loss <- mean(c(wmean_NSE, spaef)) - model_size_loss
+    
+    # output
+    output["mean_NSE"] <- mean_NSE
+    output["wmean_NSE"] <- wmean_NSE
+    output["model_loss"] <- spaef
+    output["full_loss"] <- full_loss
+  }
+  if(Test_number == 4.6){
+    output <- list()
+    # subset relevant basins
+    if(!is.null(relevant_basins)) statistics <- statistics[statistics$sb %in% relevant_basins, ]
+    
+    # Calculate loss by comparison with observed storage states
+    # read and format state results
+    state_files <- list.files("GR4J_distributed/cdr/output", full.names = TRUE)
+    state_list <- lapply(state_files, function(x) read.table(x, header=TRUE, sep = ","))
+    
+    if(!is.null(relevant_basins)){
+      if(sum(relevant_basins %in% test_basins) == length(relevant_basins)){
+        training_nz <- feather::read_feather("True parameters/training_basins_nz.feather")
+        state_list <- lapply(state_list, function(x){
+          x[!(x$NZ %in% training_nz$NZ), ]
+        })
+      }
+      if(sum(relevant_basins %in% training_basins) == length(relevant_basins)){
+        training_nz <- feather::read_feather("True parameters/training_basins_nz.feather")
+        state_list <- lapply(state_list, function(x){
+          x[x$NZ %in% training_nz$NZ, ]
+        })
+      }
+    }
+    
+    spaef_list <- list("GR4JSt1" = NA,
+                       "GR4JSt2" = NA)
+    for(gr4j_state in c("GR4JSt1", "GR4JSt2")){
+      
+      # get relevant state and standardize
+      state_list_sub <- lapply(state_list, function(x) {
+        data.frame(NZ = x$NZ, gr4j_state = x[, gr4j_state])})
+      true_state_list_sub <- lapply(true_state_list[1:length(state_list)], 
+                                    function(x) {
+                                      data.frame(NZ = x$NZ, gr4j_state = x[, gr4j_state])})
+      all_state_list <- Map(merge, 
+                            state_list_sub, 
+                            true_state_list_sub, 
+                            by="NZ", all.y = FALSE)
+      
+      # For testing use only the testing time steps
+      if(training == "testing") all_state_list <- all_state_list[2434:length(all_state_list)]
+      if(training == "training") all_state_list <- all_state_list[241:length(all_state_list)]
+      
+      # compute spaef for every timestep
+      all_spaef <- sapply(all_state_list, function(x) {
+        SPAEF(observations = x[, 2], prediction = x[, 3])
+      })
+      spaef_list[[gr4j_state]] <- mean(all_spaef)
+    }
+    spaef <- mean(unlist(spaef_list))
+    # calculate loss
+    mean_NSE <- mean(statistics$NSE)
+    wmean_NSE <- weighted.mean(statistics$NSE, w = 1.01-statistics$NSE)
+    if(is.na(wmean_NSE) | is.na(spaef)){
+      full_loss <- NA
+    } else full_loss <- mean(c(wmean_NSE, spaef)) - model_size_loss
+    
+    # output
+    output["mean_NSE"] <- mean_NSE
+    output["wmean_NSE"] <- wmean_NSE
+    output["model_loss"] <- spaef
+    output["full_loss"] <- full_loss
+  }
+  
   return(output)
-  output <- list()
 }
 
-# Evaluate test results
+# Evaluate test basin and test time period performance
 evaluate_test_basins <- function(test_functions, Optimizer, Test_number, run,
-                                 para, para_1km, training_basins, test_basins){
+                                 para, para_1km, training_basins, test_basins,
+                                 true_state_list){
   true_para_field_df <- true_para_field(Test_number)
+  if(Test_number %in% c(4.4, 4.5)){
+    if(!exists("true_state_list")) {
+      true_state_list <- readRDS("True parameters/true_states_list")
+      gr4j_state <- ifelse(Test_number == 4.4, "GR4JSt1", "GR4JSt2")
+      true_state_list <- lapply(true_state_list, function(x) {
+        data.frame(NZ = x$NZ, gr4j_state = x[, gr4j_state])})
+    }
+  }
+  if(Test_number == 4.6){
+    if(!exists("true_state_list")) {
+      true_state_list <- readRDS("True parameters/true_states_list")
+    }
+  }
+  
   l0 <- load_sp_mur(na.approx = TRUE, scale = TRUE,
                     only_training_basins = FALSE,
                     full_dataset = FALSE)
@@ -830,6 +1181,7 @@ evaluate_test_basins <- function(test_functions, Optimizer, Test_number, run,
   } else {
     statistics_1km <- NULL
   }
+  
   # calculate mean loss for all basins
   mean_NSE <- mean(statistics$NSE)
   mean_train_NSE <-  mean(statistics$NSE[statistics$sb %in% training_basins])
@@ -842,21 +1194,26 @@ evaluate_test_basins <- function(test_functions, Optimizer, Test_number, run,
                                    true_para_field_df = true_para_field_df, 
                                    model_size_loss = model_size_loss,
                                    new_gr4j_para = new_gr4j_para, 
-                                   statistics_1km = statistics_1km)
+                                   statistics_1km = statistics_1km,
+                                   relevant_basins = c(training_basins, test_basins),
+                                   training = FALSE, true_state_list = true_state_list)
   # test losses
   test_evaluation <- GR4J_model_quality(statistics = statistics, Test_number = Test_number, 
                                         true_para_field_df = true_para_field_df, 
                                         model_size_loss = model_size_loss,
                                         new_gr4j_para = new_gr4j_para,
                                         relevant_basins = test_basins,
-                                        statistics_1km = statistics_1km)
+                                        statistics_1km = statistics_1km,
+                                        training = FALSE, true_state_list = true_state_list)
   # train losses
   train_evaluation <- GR4J_model_quality(statistics = statistics, Test_number = Test_number, 
                                          true_para_field_df = true_para_field_df, 
                                          model_size_loss = model_size_loss,
                                          new_gr4j_para = new_gr4j_para,
                                          relevant_basins = training_basins,
-                                         statistics_1km = statistics_1km)
+                                         statistics_1km = statistics_1km,
+                                         training = FALSE, true_state_list = true_state_list)
+  
   names(statistics)[1] <- "Basin"
   results <- list(data.frame("mean NSE" = round(mean_NSE, 3),
                              "mean training NSE" = round(mean_train_NSE, 3),
@@ -865,22 +1222,23 @@ evaluate_test_basins <- function(test_functions, Optimizer, Test_number, run,
                   data.frame(
                     "mean NSE" = round(evaluation[["mean_NSE"]], 3),
                     "weighted mean NSE" = round(evaluation[["wmean_NSE"]], 3),
-                    "model loss" = round(evaluation[["model_loss"]], 3), 
+                    "SPAEF or model loss" = round(evaluation[["model_loss"]], 3), 
                     "full loss" = round(evaluation[["full_loss"]], 3), check.names = FALSE),
                   # training model results
                   data.frame(
                     "mean NSE" = round(train_evaluation[["mean_NSE"]], 3),
                     "weighted mean NSE" = round(train_evaluation[["wmean_NSE"]], 3),
-                    "model loss" = round(train_evaluation[["model_loss"]], 3), 
+                    "SPAEF or model loss" = round(train_evaluation[["model_loss"]], 3), 
                     "full loss" = round(train_evaluation[["full_loss"]], 3), check.names = FALSE),
                   
                   # test model results
                   data.frame(
                     "mean NSE" = round(test_evaluation[["mean_NSE"]], 3),
                     "weighted mean NSE" = round(test_evaluation[["wmean_NSE"]], 3),
-                    "model loss" = round(test_evaluation[["model_loss"]], 3), 
+                    "SPAEF or model loss" = round(test_evaluation[["model_loss"]], 3), 
                     "full loss" = round(test_evaluation[["full_loss"]], 3), check.names = FALSE),
                   statistics[, 1:2])
+  
   cat("\nSaved testing results of test nr.", Test_number, "in corresponding folder\n")
   file <- paste0("Test ", substr(Test_number, 1, 1),"/",
                  "Test ", Test_number, "/testing/",
@@ -918,13 +1276,12 @@ evaluate_test_basins <- function(test_functions, Optimizer, Test_number, run,
   cat("x4 = ", test_functions[["GR4Jx4"]], "\n", file = file, append = TRUE)
   return(results)
 }
-
-# Evaluate training results
+# Evaluate training basins and training time period performance
 evaluate_training_basins <- function(end_results, run, Test_number, 
                                      spatial_predictors, Optimizer, para, para_1km = NULL,
                                      training_basins, test_basins){
   best_tfs <- list(GR4Jx1 = end_results$best_x1,
-                   GR4Jx2 = "0",          # interaction direct runoff and routing store
+                   GR4Jx2 = "0",          
                    GR4Jx3 = end_results$best_x3,
                    GR4Jx4 = end_results$best_x4)
   new_gr4j_para <- try(create_GR4J_para(transfer_functions = best_tfs,
@@ -932,8 +1289,9 @@ evaluate_training_basins <- function(end_results, run, Test_number,
                                         parameter_bounds = parameter_bounds,
                                         gmean_parameter = gmean_parameter),
                        silent = TRUE)
-  if(class(new_gr4j_para) == "try-error") stop("Failed evaluating training results. 
-                                               No valid transfer function was found.")
+  if(class(new_gr4j_para) == "try-error") {
+    stop("Failed evaluating training results. No valid transfer function was found.")
+  }
   # merge new parameters with parameter file
   para_new <- merge(para, new_gr4j_para, by = c("NB_", "NZ_"), suffixes =  c(".old", ""),
                     all.x = TRUE)
@@ -953,6 +1311,7 @@ evaluate_training_basins <- function(end_results, run, Test_number,
   sys::exec_wait("start_GR4J_case_study.bat",
                  std_out = "GR4J_output.txt")
   setwd("..")
+  
   if(Test_number %in% c(3.1, 3.2, 3.3)){
     # 1 KM Model parameters
     new_gr4j_para_1km <- create_GR4J_para(transfer_functions = best_tfs, 
@@ -985,25 +1344,41 @@ evaluate_training_basins <- function(end_results, run, Test_number,
   } else {
     statistics_1km <- NULL
   }
+  
   # Get statistics and calculate losses
   statistics <- read.table("GR4J_distributed/output/statistics_gr4j_Mur.txt",
                            skip = 21, header = TRUE)
+  
   # model size loss
   functions_splitted <- lapply(best_tfs, function_splitter)
   model_size_loss <- size_loss(functions_splitted)
   true_para_field_df <- true_para_field(Test_number)
   # Evaluate model quality
+  if(Test_number %in% c(4.4, 4.5)){
+    if(!exists("true_state_list")) {
+      true_state_list <- readRDS("True parameters/true_states_list")
+      gr4j_state <- ifelse(Test_number == 4.4, "GR4JSt1", "GR4JSt2")
+      true_state_list <- lapply(true_state_list, function(x) {
+        data.frame(NZ = x$NZ, gr4j_state = x[, gr4j_state])})
+    }
+  }
+  if(Test_number == 4.6){
+    if(!exists("true_state_list")) {
+      true_state_list <- readRDS("True parameters/true_states_list")
+    }
+  }  
   evaluation <- GR4J_model_quality(statistics = statistics, Test_number = Test_number, 
                                    true_para_field_df = true_para_field_df, 
                                    model_size_loss = model_size_loss,
                                    new_gr4j_para = new_gr4j_para, 
                                    statistics_1km = statistics_1km,
-                                   relevant_basins = training_basins)
+                                   relevant_basins = training_basins,
+                                   true_state_list = true_state_list)
   # define training result df
   names(statistics)[1] <- "Basin"
   train_results <- list(data.frame("mean_NSE" = round(evaluation[["mean_NSE"]], 3), 
                                    "weighted_mean_NSE" = round(evaluation[["wmean_NSE"]], 3),
-                                   "model_loss" = round(evaluation[["model_loss"]], 3), 
+                                   "SPAEF/model_loss" = round(evaluation[["model_loss"]], 3), 
                                    "full_loss" = round(evaluation[["full_loss"]], 3)),
                         statistics[, 1:2])
   # save and cat
@@ -1038,11 +1413,19 @@ FSO <- function(Optimizer, Test_number, run, iterations,
   if(Test_number == 2.3) cat("Test info: optimization of weighted mean NSE and X4 parameter field\n")
   if(Test_number == 2.4) cat("Test info: optimization of weighted mean NSE and GR4J state S NSE\n")
   if(Test_number == 2.5) cat("Test info: optimization of weighted mean NSE and GR4J state R NSE\n")
+  if(Test_number == 2.5) cat("Test info: optimization of weighted mean NSE and GR4J states S & R NSE\n")
   if(Test_number == 3.1) cat("Test info: optimization of weighted mean NSE of 2 km and 1 km model")
   if(Test_number == 3.2) cat("Test info: optimization of weighted mean NSE of 2 km and 1 km model 
                              and GR4J state S NSE\n")
   if(Test_number == 3.3) cat("Test info: optimization of weighted mean NSE of 2 km and 1 km model 
                              and GR4J state R NSE\n")
+  if(Test_number == 4.1) cat("Test info: optimization of weighted mean NSE and the last time step GR4J state S SPAEF\n")
+  if(Test_number == 4.2) cat("Test info: optimization of weighted mean NSE and the last time step GR4J state R SPAEF\n")
+  if(Test_number == 4.3) cat("Test info: optimization of weighted mean NSE and the last time step GR4J states S & R SPAEF\n")
+  if(Test_number == 4.4) cat("Test info: optimization of weighted mean NSE and GR4J state S SPAEF\n")
+  if(Test_number == 4.4) cat("Test info: optimization of weighted mean NSE and GR4J state R SPAEF\n")
+  if(Test_number == 4.4) cat("Test info: optimization of weighted mean NSE and GR4J states S & R SPAEF\n")
+  
   # Generate Test specific folders in directory
   general_test_folder <- paste0("Test ", substr(Test_number, 1, 1))
   subtest_folder <- paste0("Test ", substr(Test_number, 1, 1),"/",
@@ -1051,6 +1434,7 @@ FSO <- function(Optimizer, Test_number, run, iterations,
                             "Test ", Test_number, "/training")
   testing_folder <- paste0("Test ", substr(Test_number, 1, 1),"/",
                            "Test ", Test_number, "/testing")
+  
   if (!dir.exists(general_test_folder)){
     dir.create(general_test_folder)
   }
@@ -1087,13 +1471,20 @@ FSO <- function(Optimizer, Test_number, run, iterations,
   if (!dir.exists(diag_path2)){
     dir.create(diag_path2)
   }
+  
   diag_path3 <- paste0(para_fields, "../diagnostic plots/run_", run, "/", Optimizer, "/")
   if (!dir.exists(diag_path3)){
     dir.create(diag_path3)
   }
+  
+  
   # Load spatial information about storage parameter
   true_para_field_df <- true_para_field(Test_number)
+  # remove old states if existent
+  tmp <- do.call(file.remove, list(
+    list.files("GR4J_distributed/cdr/output", full.names = TRUE)))
   # 2. Training
+  
   # CHANGE 2 KM DEFAULT FILE:
   default <- readLines("GR4J_distributed/input/defaults.txt")
   # set para file
@@ -1110,6 +1501,8 @@ FSO <- function(Optimizer, Test_number, run, iterations,
   # set Datafile
   default[7] <- "QObs_24h_synth_GR4J.txt" # used
   default[8] <- "QObs_24h.txt" # backup
+  # set output type
+  default[26] <- ifelse(Test_number %in% c(4.4, 4.5), "1", "0")
   writeLines(default, con = "GR4J_distributed/input/defaults.txt")
   
   # CHANGE 1 KM DEFAULT FILE:
@@ -1132,8 +1525,11 @@ FSO <- function(Optimizer, Test_number, run, iterations,
   default[25] <- "1"
   # write new default file
   writeLines(default, con = "GR4J_distributed_1km/input/defaults.txt")
+  
+  
   # FSO optimization
   source(paste0("Functions/", Optimizer, "_optimization_GR4J.R"), local = TRUE)
+  
   results <- feather::read_feather(paste0("Test ", substr(Test_number, 1, 1),"/",
                                           "Test ", Test_number, "/", Optimizer,
                                           "_GR4J_optimization_", 
@@ -1149,6 +1545,7 @@ FSO <- function(Optimizer, Test_number, run, iterations,
       paste0("Test ", substr(Test_number, 1, 1),"/",
              "Test ", Test_number, "/run_", run, "/", Optimizer))
   # 3. Testing
+  
   # CHANGE 2 KM DEFAULT FILE:
   default <- readLines("GR4J_distributed/input/defaults.txt")
   # set para file
@@ -1166,6 +1563,7 @@ FSO <- function(Optimizer, Test_number, run, iterations,
   default[7] <- "QObs_24h_synth_GR4J.txt" # used
   default[8] <- "QObs_24h.txt" # backup
   writeLines(default, con = "GR4J_distributed/input/defaults.txt")
+  
   # CHANGE 1 KM DEFAULT FILE:
   default <- readLines("GR4J_distributed_1km/input/defaults.txt")
   # set para file
@@ -1194,7 +1592,9 @@ FSO <- function(Optimizer, Test_number, run, iterations,
                                        run = run,
                                        training_basins = training_basins, 
                                        test_basins = test_basins, 
-                                       para = para, para_1km = para_1km)
+                                       para = para, para_1km = para_1km,
+                                       true_state_list = true_state_list)
+  
   # 4. Diagnostic Plots & rasters
   library(ggplot2, quietly = TRUE)
   library(ggpubr, quietly = TRUE)
@@ -1219,31 +1619,34 @@ FSO <- function(Optimizer, Test_number, run, iterations,
       dev.off()
       
     }
+    
     # get true parameter field
     assign("true_parameter", raster::raster(paste0("True parameters/", parameter, "_2km.asc")))
     
     # Plot True vs. predicted parameters
+    
     plot_df <- data.frame("Observation" = values(true_parameter), 
                           "Prediction" = values(get(paste0("raster_2km"))))
     max_val <- max(plot_df, na.rm = TRUE)
     min_val <- min(plot_df, na.rm = TRUE)
     plot_df <- plot_df[!is.na(plot_df$Observation), ]
     correlation <- round(cor(plot_df, use = "pairwise.complete.obs")[2, 1], 2)
+    
     plot_df <- plot_df[sample(nrow(plot_df), 500), ]
     ggplot(plot_df, aes(Observation, Prediction)) + geom_point(col = "cornsilk4") + 
       geom_smooth(method='lm', col = "darkgoldenrod2") + 
-      labs(
-        x = paste0("True ",  plot_parameter[[parameter]]),
-        y = paste0("Predicted ",  plot_parameter[[parameter]])
+      labs(x = paste0("True ",  plot_parameter[[parameter]]),
+           y = paste0("Predicted ",  plot_parameter[[parameter]])
       ) + annotate(geom = "text", 
                    x =  max_val, y = max_val,
-                   label = 
-                     paste0("R = ", correlation), 
+                   label = paste0("R = ", correlation), 
                    size = 4, hjust = 1, vjust = 2) +
       ylim(min_val, max_val) + xlim(min_val, max_val) +
       theme_bw()
-      ggsave(paste0(diag_path2, Optimizer, "/4_", Optimizer, "_", parameter, "_vs_true.png"),
-             width = 7, height = 7, units = "in")
+    
+    ggsave(paste0(diag_path2, Optimizer, "/4_", Optimizer, "_", parameter, "_vs_true.png"),
+           width = 7, height = 7, units = "in")
+    
     plot_df_melt <- suppressWarnings(reshape2::melt(plot_df))
     ggplot(plot_df_melt, aes(value, fill = variable)) +
       geom_density(alpha = 0.4) +
@@ -1256,11 +1659,18 @@ FSO <- function(Optimizer, Test_number, run, iterations,
                               name= "")
     ggsave(paste0(diag_path2, Optimizer, "/4_", Optimizer, "_", parameter, "_vs_true_density.png"),
            width = 7, height = 7, units = "in")
+    
   }
+  
   # Plot map with good and bad results
-  path <- "Data/spatial_predictors_mur/"
+  if(Sys.info()[1] == "Linux"){
+    path <- "/media/cfgrammar/Data/Dropbox/Diss/CF_Grammar/Data/spatial_predictors_mur/"
+  } else {
+    path <- "D:/Dropbox/Diss/CF_Grammar/Data/spatial_predictors_mur/"
+  }
   # get raster objects of catchment
   nb <- raster::raster(paste0(path, "l0_nb2000_mur.asc"))
+  
   test_result <- read.table(paste0(para_fields, "../testing/", 
                                    Optimizer, "_testing_", Test_number, "_run", run,  ".txt"),
                             skip = 26, header = TRUE, nrow = 112)
@@ -1273,6 +1683,7 @@ FSO <- function(Optimizer, Test_number, run, iterations,
   values(good_bad)[values(nb) %in% bad_results$Basin] <- 2
   values(good_bad)[values(nb) %in% training_basins] <- 3
   values(good_bad)[is.na(values(nb))] <- NA
+  
   # Make plotting data frame
   good_bad.p <- raster::rasterToPoints(good_bad)
   df <- data.frame(good_bad.p)
@@ -1293,6 +1704,8 @@ FSO <- function(Optimizer, Test_number, run, iterations,
     ) +
     ggsave(paste0(diag_path2, Optimizer, "/1_result_map_", Optimizer, ".png"),
            width = 7, height = 7, units = "in")
+  
+  
   # 2. plot: NSE map
   nse_basins <- nb
   for (i in unique(nb)){
@@ -1329,6 +1742,7 @@ FSO <- function(Optimizer, Test_number, run, iterations,
     ) +
     ggsave(paste0(diag_path2, Optimizer, "/2_NSE_map_", Optimizer, ".png"),
            width = 7, height = 7, units = "in")
+  
   # 3. plot: Elevation vs. good and bad predictions
   compare_results_df <- load_sp_mur(scale = FALSE, na.approx = FALSE, 
                                     only_training_basins = FALSE, full_dataset = FALSE)
@@ -1339,6 +1753,7 @@ FSO <- function(Optimizer, Test_number, run, iterations,
   compare_results_df$good_bad[compare_results_df$nb %in% training_basins] <- "Training"
   compare_results_df$good_bad <- factor(compare_results_df$good_bad, 
                                         levels = c("NSE <= 0.8", "NSE > 0.8", "Training"))
+  
   ggplot(compare_results_df, aes(good_bad, elevation)) + geom_boxplot() +
     scale_x_discrete("good_bad", drop = FALSE) +
     labs(
@@ -1353,6 +1768,8 @@ FSO <- function(Optimizer, Test_number, run, iterations,
   # 4. Compare Training/test NSE for test time period
   test_result$train_test <- "Test"
   test_result$train_test[test_result$Basin %in% training_basins] <- "Training"
+  
+  
   ggplot(test_result, aes(factor(train_test), NSE)) + geom_boxplot() +
     labs(
       x = "", y = "NSE of testing time period",
@@ -1362,6 +1779,7 @@ FSO <- function(Optimizer, Test_number, run, iterations,
     ggsave(paste0(diag_path2, Optimizer, "/4_NSE_distributions_", 
                   Optimizer, ".png"),
            width = 7, height = 7, units = "in")
+  
   cat("\nDone!\n")
 }
 
@@ -1370,10 +1788,8 @@ FSO_setup <- function(){
   cat("\nCase study is setup as defined in Functions/case_study_setup.\n")
   # Load setup
   source("Functions/case_study_setup.R")
-  # Load function space network 
+  # Load function space VAE 
   source("Functions/FSO_VAE_generator.R")
-  # load l0 layer
-  #l0 <- load_sp_mur(scale = TRUE, add_noise = FALSE, na.approx = TRUE, only_training_basins = TRUE)
   cat("\nFSO setup complete!\n")
 }
 

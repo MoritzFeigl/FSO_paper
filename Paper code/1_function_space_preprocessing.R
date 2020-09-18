@@ -1,12 +1,12 @@
-#
-# Moritz Feigl, Jan 2019
-#
-# 
+# Preprocessing for Function Space Optimization
+# Moritz Feigl, 2019
 #
 
 setwd("FSO_paper")
 library(feather)
 library(tidyverse)
+library(keras)
+library(tensorflow)
 source("Functions/CFG_functions")
 
 
@@ -63,7 +63,7 @@ functions_simple_10_numerics <- num_df_input(function_df2$Transfer_Function_simp
 # take only unique functions
 functions_simple_10_numerics_unique <- functions_simple_10_numerics$TF_simple_10numerics[
   !duplicated(functions_simple_10_numerics$TF_simple_10numerics)
-  ]
+]
 
 # remove exotic functions ----------------------------------------------------------------
 # * 6
@@ -99,10 +99,51 @@ id44 <- grep("/4", functions_simple_10_numerics_unique, fixed = TRUE)
 functions_simple_10_numerics_unique <- functions_simple_10_numerics_unique[-id43]
 
 # save
- write_feather(data.frame("TF_simple_10numerics" = functions_simple_10_numerics_unique, stringsAsFactors = FALSE),
- "Data/functions_simple_10_numerics_pp.feather")
+write_feather(data.frame("TF_simple_10numerics" = functions_simple_10_numerics_unique, 
+                         stringsAsFactors = FALSE),
+              "Data/functions_simple_10_numerics_pp.feather")
 
-# 4. Distribution properties -------------------------------------------------------------
+# 4. Prepare text data as dictionary integers -------------------------------------------
+funs <- functions_simple_10_numerics_unique$TF_simple_10numerics
+
+# Define dictionary
+dict_from_list <- function(...){
+  dict <- c(...)
+  dictionary <- as.data.frame(matrix(NA, nrow = 1, ncol = length(dict)))
+  names(dictionary) 1:length(dict)
+  dictionary[1, ] <- dict
+  return(dictionary)
+}
+operators <- c('-', '(', ')', '+', "*", "/", "1")
+f <- c("log", "exp")
+vars <- c("noise", "elevation", "clay",  "bdim",  "hand",  "evi", "slope", "sand")
+nums <- c("^2", "0.8", "0.1", "0.2", "0.7", "1.4", "1.5", "1.3", "1.1", 
+          "1.2", "0.9", "0.3", "0.5", "0.6", "0.4", "2", "3")
+dict <- c(operators, f, vars, nums)
+dictionary <- dict_from_list(operators, f, vars, nums)
+write_feather(dictionary, "Data/index2word_10numerics.feather")
+
+# Keras tokenizing
+prepare_text_for_tokenize <- function(text, operators = "\\^\\+\\-\\/\\*\\(\\)"){
+  text <- stringr::str_replace_all(text, paste0('([', operators, '])'), " \\1 ")
+  text <- tokenizers::tokenize_words(text, strip_punct = FALSE)
+    text <- sapply(text, 
+                   FUN = function(x) paste0(c("", paste0(x, collapse = ";"), ""), collapse = ";"))
+  return(text)
+}
+cl <- parallel::makeCluster(14)
+prep_funs <- parallel::parLapply(cl = cl, X = funs, prepare_text_for_tokenize)
+
+# keras tokenizer with pred-defined dictionary
+tt <- keras::text_tokenizer(filters = "\\;")
+tt$word_index <- dictionary
+
+funs_tokenized <- keras::texts_to_sequences(tt, prep_funs)
+max_length <- max(lengths(funs_tokenized))
+funs_padded <- keras::pad_sequences(funs_tokenized, maxlen = max_length)
+feather::write_feather(data.frame(funs_padded), "Data/generator_data_simple_10numerics.feather")
+
+# 5. Distribution properties -------------------------------------------------------------
 functions_simple_10_numerics <- read_feather("Data/functions_simple_10_numerics_pp.feather.feather")
 # Load spatial predictors
 source("Functions/FSO_functions.R")
@@ -124,7 +165,7 @@ evaluate_function_from_string <- function(string, l0){
     f_evaluated <- rep(f(), nrow(l0))
   } else {
     args <- paste(names(relevant_predictors), collapse = ', ')
-
+    
     eval(parse(text = paste('f <- function(', args, ') { return(' , string , ')}', sep='')))
     f_evaluated <- eval(parse(text = paste('mapply(f, ',
                                            paste0('relevant_predictors$',
@@ -146,23 +187,23 @@ distribution_values_from_tf <- function(tf, spatial_predictors, cut_off = NULL){
     mean(tf_evaluated, na.rm = TRUE),
     quantile(tf_evaluated, probs = c(0.6, 0.7, 0.8, 0.9), na.rm = TRUE),
     max(tf_evaluated, na.rm = TRUE)
-    ), 4)
+  ), 4)
   names(distribution_values) <- c("min", "10%", "20%", "30%", "40%", "mean",
                                   "60%", "70%", "80%", "90%", "max")
   return(distribution_values)
 }
 
 tf_distributions <- parallel::mclapply(functions_simple_10_numerics$TF_simple_10numerics,
-                           distribution_values_from_tf, spatial_predictors = spatial_predictors,
-                           mc.cores = 18,
-                           mc.set.seed = TRUE)
+                                       distribution_values_from_tf, spatial_predictors = spatial_predictors,
+                                       mc.cores = 18,
+                                       mc.set.seed = TRUE)
 tf_distributions_df <- do.call(rbind, tf_distributions)
 tf_distributions_df <- data.frame(transfer_function = functions_simple_10_numerics$TF_simple_10numerics,
                                   tf_distributions_df,
                                   stringsAsFactors = FALSE)
 write_feather(tf_distributions_df, "Data/functions_simple_10_numerics_Distribution_indiv_scale_allBasins.feather")
 
-# Cut off distributions ------------------------------------------------------------------
+# 6. Cut off distributions ---------------------------------------------------------------
 generator_data <- read_feather("Data/generator_data_simple_10numerics.feather")
 tf_dist <- read_feather("Data/functions_simple_10_numerics_Distribution_indiv_scale_allBasins.feather")
 # remove functions with NA mean
@@ -190,11 +231,11 @@ tf_dist_recalc <- tf_dist_recalc[!out_of_range, ]
 generator_data_recalc <- generator_data_recalc[!out_of_range, ]
 # recalculate distributions values with threshold
 tf_distributions_recalc1 <- parallel::mclapply(tf_dist_recalc$transfer_function,
-                                    distribution_values_from_tf, 
-                                    spatial_predictors = spatial_predictors, 
-                                    cut_off = c(-threshold, threshold),
-                                    mc.cores = 18)
-# fix null values created by mclapply
+                                               distribution_values_from_tf, 
+                                               spatial_predictors = spatial_predictors, 
+                                               cut_off = c(-threshold, threshold),
+                                               mc.cores = 18)
+# find null values created by mclapply
 if(sum(sapply(tf_distributions_recalc1, is.null)) > 0){
   id_nulls <- which(sapply(tf_distributions_recalc1, is.null))
   tf_nulls <- tf_dist_recalc$transfer_function[id_nulls]
@@ -202,8 +243,8 @@ if(sum(sapply(tf_distributions_recalc1, is.null)) > 0){
   cl <- makeCluster(mc <- getOption("cl.cores", 18))
   clusterExport(cl=cl, varlist=c("evaluate_function_from_string"))
   dist_nulls <- parLapply(cl, tf_nulls, distribution_values_from_tf,
-                    spatial_predictors = spatial_predictors, 
-                    cut_off = c(-threshold, threshold))
+                          spatial_predictors = spatial_predictors, 
+                          cut_off = c(-threshold, threshold))
 }
 # fix them
 for(i in seq_along(id_nulls)){
@@ -212,12 +253,12 @@ for(i in seq_along(id_nulls)){
 tf_distributions_recalc <- do.call(rbind, tf_distributions_recalc1)
 tf_distributions_recalc <- data.frame(transfer_function = tf_dist_recalc$transfer_function,
                                       tf_distributions_recalc,
-                                  stringsAsFactors = FALSE)
+                                      stringsAsFactors = FALSE)
 write_feather(rbind(tf_dist, tf_distributions_recalc), 
               "Data/functions_simple_10_numerics_Distribution_indiv_scale_wrecalc_allBasins.feather")
 write_feather(rbind(generator_data, generator_data_recalc), 
               "Data/generator_data_simple_10numerics_wrecalc_allBasins.feather")
-# remove all functions that are mainly produce the max and min values
+# remove all functions that mainly produce max and min values
 tf_dist <- read_feather("Data/functions_simple_10_numerics_Distribution_indiv_scale_wrecalc_allBasins.feather")
 generator_data <- read_feather("Data/generator_data_simple_10numerics_wrecalc_allBasins.feather")
 extreme_tfs_ind <- tf_dist$min == -11 & tf_dist$X10. == -11 & tf_dist$X20. == -11 |
@@ -228,7 +269,6 @@ write_feather(tf_dist,
               "Data/functions_simple_10_numerics_Distribution_indiv_scale_wrecalc_allBasins_no_extremes.feather")
 write_feather(generator_data,  
               "Data/generator_data_simple_10numerics_wrecalc_allBasins_no_extremes.feather")
-
 
 
 

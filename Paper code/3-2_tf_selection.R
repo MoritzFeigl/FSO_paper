@@ -1,6 +1,5 @@
-#
-# Function Space Optimization
-# transfer function selection
+# Select synthetic transfer functions
+# Moritz Feigl, 2019
 #
 
 setwd("FSO_paper")
